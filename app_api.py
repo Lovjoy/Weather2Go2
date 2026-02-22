@@ -16,6 +16,39 @@ with col_text:
 # Hide timezone dropdown by hard-coding it
 timezone = "auto"
 
+cities = [
+"Alpena",
+"Ann Arbor",
+"Bad Axe",
+"Bay City",
+"Big Rapids",
+"Charlevoix",
+"Cheboygan",
+"Detroit",
+"Escanaba",
+"Flint",
+"Gaylord",
+"Grand Haven",
+"Grand Rapids",
+"Holland",
+"Ionia",
+"Iron Mountain",
+"Ironwood",
+"Jackson",
+"Kalamazoo",
+"Lansing",
+"Ludington",
+"Mackinaw City",
+"Manistee",
+"Marquette",
+"Mount Pleasant",
+"Petoskey",
+"Saginaw",
+"Sault Ste. Marie",
+"St. Johns",
+"Traverse City"
+]
+
 @st.cache_resource
 def load_model():
     return joblib.load("rf_weather_risk_model_2.joblib")
@@ -104,7 +137,7 @@ def geocode_michigan(query: str):
     results = payload.get("results", []) or []
 
     mi = [x for x in results if (x.get("admin1") == "Michigan")]
-    return mi
+    return [mi[0]]
 
 def fetch_hourly_weather(lat: float, lon: float, timezone: str = "auto"):
     url = "https://api.open-meteo.com/v1/forecast"
@@ -118,6 +151,14 @@ def fetch_hourly_weather(lat: float, lon: float, timezone: str = "auto"):
     r.raise_for_status()
     return r.json()
 
+def resolve_geo_results(cities):
+        return [
+        r
+        for city in cities
+        for r in (city if isinstance(city, list) else [city])
+        if isinstance(r, dict)
+    ]
+
 # ---------- UI ----------
 
 # Keep results across reruns
@@ -126,10 +167,11 @@ if "geo_results" not in st.session_state:
 if "last_output" not in st.session_state:
     st.session_state.last_output = None
 
-st.subheader("Search Michigan city and predict")
+st.subheader("City name")
 
 with st.form("search_form"):
-    city_query = st.text_input("Michigan city", value="Detroit")
+
+    city_query = st.multiselect("Michigan city", cities, default=[])
     use_now = st.checkbox("Use next available hour", value=True)
 
     selected_dt = None
@@ -141,18 +183,53 @@ with st.form("search_form"):
     search_clicked = st.form_submit_button("Search Michigan locations")
 
 if search_clicked:
-    st.session_state.geo_results = geocode_michigan(city_query)
+    flat_results = []
+    for city in city_query:
+        flat_results.extend(geocode_michigan(city))  # flatten here
+    st.session_state.geo_results = flat_results
     st.session_state.last_output = None
 
 results = st.session_state.geo_results
 
+# Defensive flatten + type filter
+normalized_results = []
+for item in results:
+    if isinstance(item, dict):
+        normalized_results.append(item)
+    elif isinstance(item, list):
+        for sub in item:
+            if isinstance(sub, dict):
+                normalized_results.append(sub)
+
+results = normalized_results
+
+
+# probably delete this, need to look into it further
+st.session_state.geo_results = results
+
 if results:
-    labels = [
-        f"{r.get('name')}, {r.get('admin2','')} MI (lat={r.get('latitude'):.3f}, lon={r.get('longitude'):.3f})"
+    label_collection = [
+    {
+    "name": r.get("name"),
+    "county": r.get("admin2", ""),
+    "state": "MI",
+    "lat": round(r.get("latitude"), 3) if r.get("latitude") is not None else None,
+    "lon": round(r.get("longitude"), 3) if r.get("longitude") is not None else None,
+    }
         for r in results
     ]
-    choice = st.selectbox("Pick the best match", labels, index=0)
-    chosen = results[labels.index(choice)]
+
+    weather_data = []
+    for city in label_collection:
+        # print(city['lat'])
+        temp = fetch_hourly_weather(city['lat'], city['lon'], timezone=timezone)
+        weather_data.append(temp)
+        print(temp)
+        # weather_data.append({})
+    # wx = fetch_hourly_weather(lat, lon, timezone=timezone)
+    # print(label_collection)
+    # choice = st.selectbox("Pick the best match", label_collection, index=0)
+    chosen = weather_data[0]
 
     if st.button("Get weather + Predict"):
         lat, lon = float(chosen["latitude"]), float(chosen["longitude"])
