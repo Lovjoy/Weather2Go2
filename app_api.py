@@ -3,6 +3,7 @@ import pandas as pd
 import joblib
 import requests
 from datetime import datetime
+import pdb
 
 col_logo, col_text = st.columns([2, 3])
 with col_logo:
@@ -221,18 +222,17 @@ if results:
 
     weather_data = []
     for city in label_collection:
-        # print(city['lat'])
         temp = fetch_hourly_weather(city['lat'], city['lon'], timezone=timezone)
         weather_data.append(temp)
-        print(temp)
         # weather_data.append({})
     # wx = fetch_hourly_weather(lat, lon, timezone=timezone)
-    # print(label_collection)
     # choice = st.selectbox("Pick the best match", label_collection, index=0)
     chosen = weather_data[0]
 
-    if st.button("Get weather + Predict"):
-        lat, lon = float(chosen["latitude"]), float(chosen["longitude"])
+    result = {}
+    highestScore = 0
+    for x in weather_data: 
+        lat, lon = float(x["latitude"]), float(x["longitude"])
         wx = fetch_hourly_weather(lat, lon, timezone=timezone)
         hourly = wx.get("hourly", {})
         times = hourly.get("time", [])
@@ -284,17 +284,20 @@ if results:
         high_idx = len(classes) - 1
         p_high = float(proba[high_idx])
         risk_bucket = prob_to_bucket(p_high)
+        if proba[0] > highestScore:
+            highestScore = proba[0]
+            st.session_state.last_output = {
+                "picked_time": picked_time_str,
+                "X": X,
+                "risk_bucket": risk_bucket,
+                "p_high": p_high,
+                "classes": classes,
+                "proba": proba,
+            }
+    else:
+        st.info("The worst weather has a score of " + str(proba[0]))
 
-        st.session_state.last_output = {
-            "picked_time": picked_time_str,
-            "X": X,
-            "risk_bucket": risk_bucket,
-            "p_high": p_high,
-            "classes": classes,
-            "proba": proba,
-        }
-else:
-    st.info("Search a Michigan city to get started.")
+
 
 
 # Persist output so changing dropdown doesn't wipe it
